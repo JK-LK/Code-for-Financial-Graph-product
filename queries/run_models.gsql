@@ -1,0 +1,18 @@
+CREATE QUERY run_models(Set<vertex <company_node>> begin_v,string filename_model1,string filename_model2,string filename_model3,int step =12 ,double flimit = 0.0001,bool debug= false) FOR GRAPH invest_graph { 
+	SetAccum<vertex<company_node>> @@is_in_model1, @@is_in_model2, @@is_in_model3;
+	LOG(debug,"begin",begin_v.size());
+	start = {begin_v};
+	
+  /*run model1 */
+	@@is_in_model1 = Absolute_Holding_Model(begin_v, filename_model1, step,debug);
+	LOG(debug,"model1 finished",@@is_in_model1.size());
+	
+	/*run model2 */
+	@@is_in_model2 = Through_Holding_Model(begin_v, @@is_in_model1 , filename_model2 ,step,flimit,debug);
+	LOG(debug,"model2 finished",@@is_in_model2.size());
+	
+	/*run model3 */
+	@@is_in_model3 = Single_Major_Shareholder_Model(begin_v, @@is_in_model1 ,@@is_in_model2 , filename_model3, step,flimit,debug);
+	LOG(debug,"model3 finished",@@is_in_model3.size());
+  
+}

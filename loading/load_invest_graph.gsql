@@ -1,0 +1,16 @@
+USE GRAPH invest_graph
+DROP JOB load_invest_graph 
+
+CREATE LOADING JOB load_invest_graph FOR GRAPH invest_graph {
+    DEFINE FILENAME f1 = "./data/pcs_data.csv";
+    DEFINE FILENAME f2 = "./data/invest_edge.csv";
+
+    LOAD f1 TO VERTEX company_node VALUES($0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $16, _, _) USING SEPARATOR="|", HEADER="true", EOL="\n";
+    LOAD f1 TO VERTEX person_node VALUES($18, $13, $14) USING SEPARATOR="|", HEADER="true", EOL="\n";
+    LOAD f1 TO EDGE invest_edge VALUES($18, $0, $11, $15, $17) USING SEPARATOR="|", HEADER="true", EOL="\n";
+
+    LOAD f2 TO EDGE invest_share_relation VALUES($13, $0, _) USING SEPARATOR="|", HEADER="true", EOL="\n";
+
+}
+
+RUN LOADING JOB load_invest_graph

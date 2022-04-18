@@ -1,0 +1,18 @@
+CREATE QUERY find_import_company(/* Parameters here */) FOR GRAPH invest_graph { 
+  SumAccum<INT> @indegrees;
+  SumAccum<INT> @outdegrees;
+  Start = {company_node.*};
+  
+  L = SELECT s FROM Start:s-(invest_share_relation:e)->company_node:t 
+      ACCUM s.@outdegrees += 1,
+            t.@indegrees += 1; 
+  
+  L1 = SELECT s FROM Start:s ORDER BY s.@outdegrees DESC LIMIT 10; 
+  
+  PRINT L1;
+  
+  
+  L2 = SELECT s FROM Start:s ORDER BY s.@indegrees DESC LIMIT 10; 
+  
+  PRINT L2;
+}

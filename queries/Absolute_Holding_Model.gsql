@@ -1,0 +1,105 @@
+CREATE QUERY Absolute_Holding_Model(Set<vertex <company_node>> begin_v,string filename_model1,int step=12,bool debug=false) FOR GRAPH invest_graph returns(Set<vertex <company_node>>){ 
+  /* 
+	model1：
+	begin_v：
+	filename_model1：
+	step ： 
+	debug : 
+	
+	*/ 
+	TYPEDEF TUPLE <string up_company,double share_percent,string unn> item;
+	TYPEDEF TUPLE <string up_company,double share_percent> item3;
+	HeapAccum<item>(1,share_percent desc) @item_tuple;
+	HeapAccum<item3>(1,share_percent desc) @item_tuple3;
+	SetAccum<string> @upper_list;
+	MapAccum<string, MapAccum<string,double>> @send_share,@receive_share,@finished_share;
+	MapAccum<string, MinAccum<int>> @level;
+	SumAccum<int>@@update_vertex;
+	SetAccum<vertex<company_node>> @@is_in_model1;
+	OrAccum @is_control1;
+	string requestid;
+	double epsilon=0.00000001;
+	file f_model1(filename_model1);
+
+	
+	#all input vertexs start0
+	start0 = {begin_v};
+  LOG(debug,requestid,"top company",start0.size());	
+	
+	#company init
+	start = start0;
+	start = select t from start:t post-accum t.@send_share += (t.cust_name -> (t.cust_name -> 1));
+	
+	#Absolute holding path breadth traversal
+	all_v = {};
+	LOG(debug,requestid,"begin model1",start.size());
+  
+	FOREACH sub_step in range[1,step] do 
+	  start = select t from start:s-(invest_share_relation:e)->:t
+	                         where e.fndd_pctg_desc > (0.51 - epsilon) 
+	                         and e.fndd_pctg_desc < (1 - epsilon) 
+	                   accum 
+	                        FOREACH (mui,kv) in s.@send_share do 
+	                            foreach (k,v) in kv do 
+	                                string tg = "-" + t.cust_name + "-",
+	                                # Does the endpoint company appear in the path
+	                                if not contains_string(k,tg) then
+	                                    string tg = k + "-" + to_string(e.fndd_pctg_desc) + "-" + t.cust_name,
+	                                    t.@finished_share += (mui -> (tg -> e.fndd_pctg_desc)),
+	                                    t.@receive_share += (mui -> (tg -> e.fndd_pctg_desc))
+	                                end
+	                            END,
+	                            t.@level += (mui -> sub_step)
+	                        end
+	                   post-accum 
+	                        @@update_vertex += t.@receive_share.size(),
+	                        t.@send_share = t.@receive_share,
+	                        t.@receive_share.clear(),
+	                        t.@is_control1 = true
+	                             
+	 ;
+	 all_v = all_v union start;
+	 LOG(debug,sub_step,start.size(),all_v.size());
+	
+	 if start.size() == 0 then
+	    break;
+	 end;
+	end;
+	
+	LOG(debug,requestid,"model1 finished",all_v.size());
+	
+	# List of top three shareholders of the parent
+	result = select s from all_v:s-(invest_share_relation:e)-:t
+	                  where  e.fndd_pctg_desc > (0 - epsilon) 
+	                  and e.fndd_pctg_desc < (1 + epsilon) 
+	                  and s.@is_control1 == true
+	                  accum s.@item_tuple3 += item3(t.cust_name, e.fndd_pctg_desc);
+	LOG(debug,requestid,"three shareholders finish",result.size());
+	
+	
+	# Other fields & output
+	result = select s from all_v:s-(invest_share_relation:e)-:t
+	                  where e.fndd_pctg_desc > (0.51 - epsilon) 
+	                  and e.fndd_pctg_desc < (1 + epsilon) 
+	                  and s.@is_control1 == true
+	                  accum s.@item_tuple += item(t.cust_name, e.fndd_pctg_desc, t.unn_soc_cr_cd),
+	                        s.@upper_list += (t.cust_name + to_string(e.fndd_pctg_desc))
+	                  post-accum 
+	                        foreach(mui,v) in s.@finished_share do
+	                            f_model1.println("model1",
+	                                             mui,
+	                                             s.@item_tuple.top().up_company,
+																               s.@item_tuple.top().unn,
+																               s,
+																               s.unn_soc_cr_cd,
+																               s.@item_tuple.top().share_percent,
+																               s.@level.get(mui),
+																               s.@item_tuple3,
+																               v)
+	                        end,
+	                        @@is_in_model1 += s;
+	                
+	LOG(debug,requestid,"input finished",result.size(),@@is_in_model1.size());
+	RETURN @@is_in_model1;
+
+}

@@ -1,0 +1,167 @@
+CREATE QUERY Through_Holding_Model(Set<vertex <company_node>> begin_v,Set<vertex <company_node>> model1_vertex,string filename_model2,int step=12,double flimit = 0.0001,bool debug = false) FOR GRAPH invest_graph RETURNS(Set<vertex <company_node>>){ 
+  /* 
+	model2：
+	begin_v：
+	model1_vertex ： 
+	filename_model2：
+	step ： 
+	debug : 
+	*/ 
+	TYPEDEF TUPLE <vertex up_company,double share_percent,string unn> item;
+	TYPEDEF TUPLE <string up_company,double share_percent> item3;
+	HeapAccum<item>(1,share_percent desc) @item_tuple;
+	HeapAccum<item3>(1,share_percent desc) @upper_list;
+	SetAccum<string> @model2_mu,@circle_base;
+	MapAccum<string, MapAccum<string,double>> @send_share,@receive_share,@finished_share;
+	MapAccum<string, SetAccum<int>> @level_list;
+	MapAccum<string, MaxAccum<int>> @max_level;
+	MapAccum<string, double> @circle_share,@model2_sum;
+	MapAccum<string, string> @all_path;
+	SumAccum<int>@@update_vertex;
+	SetAccum<vertex<company_node>> @@is_in_model2;
+	OrAccum @is_control1,@is_control2,@visited;
+  string requestid;
+	double epsilon=0.00000001;
+	file f_model2(filename_model2);
+	
+	#获取request id 
+	requestid = get_request_id(__ENGINE__REQUEST);
+  
+	# Marking Model I
+	model1 = {model1_vertex};
+	model1 = select t from model1:t post-accum t.@is_control1 = true;
+	
+	start0 = {begin_v};
+	start = select t from start0:t post-accum t.@is_control1 = true;
+	LOG(debug,requestid,"all top company",start0.size());
+	
+	all_v = start0;
+	foreach sub_step in range[1,step] do
+	  start = select t from start:s-(invest_share_relation:e)->:t
+	                  where e.fndd_pctg_desc > (flimit-epsilon) and  e.fndd_pctg_desc < (1  + epsilon) ;
+	  all_v = all_v union start;
+	  LOG(debug,requestid,sub_step,all_v.size());
+	
+	end;
+	start = select s from all_v:s post-accum s.@visited = true;
+	LOG(debug,requestid,"Find the subgraph",all_v.size());
+	
+	
+	# Identify cross-holding nodes
+		
+	start = select s from all_v:s-(invest_share_relation:e)->:t
+		               where e.fndd_pctg_desc > (flimit-epsilon) and  e.fndd_pctg_desc < (1  + epsilon) 
+		               and t.@visited == true and t!=s 
+		               accum s.@circle_base += t.cust_name;
+		
+	start = select s from all_v:s-(invest_share_relation:e)->:t
+		               where e.fndd_pctg_desc > (flimit-epsilon) and  e.fndd_pctg_desc < (1  + epsilon) 
+		               and t.@visited == true and t!=s and s.@circle_base.contains(t.cust_name)
+		               accum s.@circle_share += (t.cust_name -> e.fndd_pctg_desc)
+		               post-accum s.@circle_base.clear();
+		
+	LOG(debug,requestid,"Identify cross-holdings to complete",start.size());
+	
+	# Calculate all paths
+		
+	start = start0;
+	start = select t from start:t post-accum t.@send_share += (t.cust_name->(t.cust_name -> 1));
+	all_v0 = start;
+	@@update_vertex =999;
+	while @@update_vertex >0 do
+		LOG(debug,requestid,"Calculate all paths",@@update_vertex,all_v0.size());
+		@@update_vertex=0;
+		all_v0 = select t from all_v0:s-(invest_share_relation:e)->:t
+		               where e.fndd_pctg_desc > (flimit-epsilon) and  e.fndd_pctg_desc < (1  + epsilon) 
+		               and t.@visited == true
+		               accum 
+		                  foreach (mui,kv) in s.@send_share do
+		                       foreach (k,v) in kv do 
+		                            string tg = "-" + t.cust_name + "-",
+		                            if not contains_string(k,tg) then
+		                                string tg = k + "-" + to_string(e.fndd_pctg_desc)+"-"+t.cust_name ,
+		                                if count_string (tg,"-")/2 <step +1 and not t.@finished_share.containsKey(tg) and v* e.fndd_pctg_desc >flimit then 
+		                                if not t.@circle_share.containsKey(s.cust_name) then
+		                             
+		                                  t.@finished_share += (mui->(tg->v*e.fndd_pctg_desc)),     
+		                                  t.@receive_share += (mui -> (tg->v*e.fndd_pctg_desc))
+		                                  
+		                            else 
+		                               double vcross = 0,
+		                               if abs(1-e.fndd_pctg_desc*t.@circle_share.get(s.cust_name)) < flimit then
+		                                   vcross = e.fndd_pctg_desc,
+		                                  Log(debug,requestid,s.cust_name,t.cust_name)
+		                              ELSE
+		                                  vcross = e.fndd_pctg_desc/(1-e.fndd_pctg_desc*t.@circle_share.get(s.cust_name))
+		                               end,
+		                                  t.@finished_share += (mui->(tg->v*vcross)),
+		                               
+		                                  t.@receive_share += (mui->(tg->v*vcross))
+		                               
+		                            end
+		                          end
+		                        end
+		                    end
+		                  END
+		              post-accum 
+		                  @@update_vertex += t.@receive_share.size(),
+		                  t.@send_share += t.@receive_share,
+		                  t.@receive_share.clear()
+		
+		                ;
+	end;
+		LOG(debug,requestid,"Calculate the path completion for each point");
+	
+	# Judging Model 2 for companies not hit by Model 1
+	L2 = select t from all_v:t where t.@is_control1 !=true
+	                           accum foreach (mui,kv) in t.@finished_share do 
+	                                     foreach (k,v) in kv do 
+	                                         t.@model2_sum += (mui->v)
+	                                     end
+	                                   end
+	                           post-accum foreach (k,v) in t.@model2_sum do 
+	                                         if  v> (0.51-epsilon) then
+	                                           t.@is_control2 =true,t.@model2_mu +=k
+	                                          end
+	                                       end;
+	LOG(debug,requestid,"model2 judgement complete",L2.size());
+	
+	# output
+	result = select s from all_v:s-(invest_share_relation:e)->:t
+		                  where e.fndd_pctg_desc > (flimit - epsilon)
+		                and e.fndd_pctg_desc < (1 + epsilon)
+	                  AND   s.@is_control2 == true
+		              accum s.@item_tuple += item(t,e.fndd_pctg_desc,t.unn_soc_cr_cd),
+		                    s.@upper_list += item3(t.cust_name ,e.fndd_pctg_desc)
+		              post-accum 
+		                    foreach (mui,kv) in s.@finished_share do 
+		                      foreach (k,v) in kv do 
+		                      s.@max_level += (mui->count_string(k,"-")/2 +1),  
+		                      s.@level_list += (mui->count_string(k,"-")/2 +1),
+		                      s.@all_path += (mui->k + ":" + to_string(v) + " " )
+		
+		                      end
+		                    end,
+	                      foreach mui in s.@model2_mu do 
+	                       f_model2.println(
+	                         "model2",
+													 mui,
+													 s.@item_tuple.top().up_company,
+													 s.@item_tuple.top().unn,
+													 s,
+													 s.unn_soc_cr_cd,
+													 s.@model2_sum.get(mui),
+													 s.@max_level.get(mui),
+													 s.@level_list.get(mui),
+													 s.@upper_list,
+													 s.@all_path.get(mui)
+	                   )
+	
+	
+	                    end,
+	                    @@is_in_model2 +=t;
+	
+  LOG(debug,requestid,"all top company",result.size());
+	
+	RETURN @@is_in_model2;
+}

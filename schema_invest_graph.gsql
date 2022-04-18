@@ -1,0 +1,11 @@
+CREATE GRAPH invest_graph()
+USE GRAPH invest_graph
+
+CREATE SCHEMA_CHANGE JOB schema_invest_graph FOR GRAPH invest_graph {
+      ADD VERTEX company_node(PRIMARY_ID id STRING, address_line_1 STRING, address_line_2 STRING, country STRING, locality STRING, postal_code STRING, premises STRING, region STRING, ceased_on DATETIME, country_of_residence STRING, etag STRING, date_of_birth DATETIME, cust_name STRING, unn_soc_cr_cd STRING) WITH STATS="OUTDEGREE_BY_EDGETYPE", PRIMARY_ID_AS_ATTRIBUTE="true";
+      ADD VERTEX person_node(PRIMARY_ID id STRING, name STRING, nationality STRING) WITH STATS="OUTDEGREE_BY_EDGETYPE", PRIMARY_ID_AS_ATTRIBUTE="true";
+      ADD UNDIRECTED EDGE invest_edge(FROM person_node, TO company_node, kinds STRING, notified_on DATETIME, is_control INT);
+      ADD DIRECTED EDGE invest_share_relation(FROM company_node, TO company_node, fndd_pctg_desc DOUBLE) WITH REVERSE_EDGE="reverse_invest_share_relation";
+    }
+
+RUN SCHEMA_CHANGE JOB schema_invest_graph
